@@ -1,0 +1,71 @@
+{
+  "name": "translation-helper",
+  "displayName": "Translation Helper",
+  "description": "Quickly convert selected text into translation keys and update English/Arabic locale files.",
+  "version": "1.0.0",
+  "publisher": "custom-translation-helper",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "translationHelper.translateSelection",
+        "title": "Translation Helper: Translate Selection"
+      },
+      {
+        "command": "translationHelper.translateWithAI",
+        "title": "Translation Helper: Translate with AI"
+      },
+      {
+        "command": "translationHelper.setApiKey",
+        "title": "Translation Helper: Set OpenAI API Key"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "translationHelper.translateSelection",
+        "key": "ctrl+shift+x",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "translationHelper.translateWithAI",
+        "key": "ctrl+shift+a",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Translation Helper",
+      "properties": {
+        "translationHelper.prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Optional prefix for translation keys. Example: QWER -> QWER.hello"
+        },
+        "translationHelper.englishFile": {
+          "type": "string",
+          "default": "locales/en.json",
+          "description": "Path to the English translation JSON file relative to the workspace root."
+        },
+        "translationHelper.arabicFile": {
+          "type": "string",
+          "default": "locales/ar.json",
+          "description": "Path to the Arabic translation JSON file relative to the workspace root."
+        },
+        "translationHelper.indent": {
+          "type": "number",
+          "default": 2,
+          "description": "Number of spaces used to format JSON translation files."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "openai": "^7.5.0"
+  }
+}

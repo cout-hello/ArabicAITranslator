@@ -1,0 +1,89 @@
+يلا 😎 نخليها Extension عادية تشتغل مع VS Code بدون Debug.
+
+1. افتح Terminal داخل مجلد translation-helper
+يعني نفس المجلد اللي فيه:
+
+package.json
+extension.js
+aiTranslator.js
+prompts/
+
+واكتب:
+
+npm install -g @vscode/vsce
+
+وانتظر يخلص.
+
+2. ابنِ ملف الـExtension
+بعدها، وأنت داخل نفس المجلد، اكتب:
+
+vsce package
+
+إذا كل شيء سليم، راح ينشئ لك ملف مثل:
+
+translation-helper-1.0.0.vsix
+
+داخل نفس المجلد.
+
+إذا طلع لك تحذير عن repository أو README لا تخاف، أرسل لي التحذير إذا وقف وما أنشأ الملف.
+
+3. ثبّتها في VS Code
+في VS Code العادي، اضغط:
+
+Ctrl + Shift + P
+
+واكتب:
+
+Extensions: Install from VSIX...
+
+اختر:
+
+translation-helper-1.0.0.vsix
+
+ثم وافق على التثبيت.
+
+بعدها غالبًا يطلب منك:
+
+Reload
+
+اضغطها.
+
+بعدها خلاص 🎉
+افتح مشروعك بشكل طبيعي، وليس Extension Development Host.
+
+حدد:
+
+Welcome back!
+
+واضغط:
+
+Ctrl + Shift + A
+
+والمفروض تشتغل مباشرة.
+
+يعني من الآن:
+
+فتح VS Code
+    ↓
+فتح مشروعك
+    ↓
+حدد النص
+    ↓
+Ctrl + Shift + A
+    ↓
+الترجمة
+
+ما عاد تحتاج Run Debug كل مرة.
+
+⚠️ شيء مهم
+إذا عدلت على كود الإضافة مستقبلًا، النسخة المثبتة لن تتحدث تلقائيًا.
+
+وقتها بعد أي تعديل مهم:
+
+vsce package
+
+ثم في VS Code:
+
+Ctrl + Shift + P → Extensions: Install from VSIX...
+
+واختر ملف الـ.vsix الجديد.
