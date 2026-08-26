@@ -18,8 +18,21 @@
         "title": "Translation Helper: Translate Selection"
       },
       {
+        "command": "translationHelper.translateEjsSelection",
+        "title": "Translation Helper: Translate EJS Selection"
+      },
+
+      {
         "command": "translationHelper.translateWithAI",
         "title": "Translation Helper: Translate with AI"
+      },
+      {
+        "command": "translationHelper.translateEjsWithAI",
+        "title": "Translation Helper: Translate EJS with AI"
+      },
+      {
+        "command": "translationHelper.translateEjsStringWithAI",
+        "title": "Translation Helper: Translate EJS String with AI"
       },
       {
         "command": "translationHelper.setApiKey",
@@ -36,7 +49,20 @@
         "command": "translationHelper.translateWithAI",
         "key": "ctrl+shift+a",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "translationHelper.translateEjsWithAI",
+        "key": "ctrl+shift+q",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "translationHelper.translateEjsStringWithAI",
+        "key": "ctrl+shift+w",
+        "when": "editorTextFocus"
       }
+
+
+      
     ],
     "configuration": {
       "title": "Translation Helper",
