@@ -37,6 +37,10 @@
       {
         "command": "translationHelper.setApiKey",
         "title": "Translation Helper: Set OpenAI API Key"
+      },
+      {
+        "command": "translationHelper.translateSelectionRawKey",
+        "title": "Translation Helper: Translate Selection (Raw Key)"
       }
     ],
     "keybindings": [
@@ -58,6 +62,11 @@
       {
         "command": "translationHelper.translateEjsStringWithAI",
         "key": "ctrl+shift+w",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "translationHelper.translateSelectionRawKey",
+        "key": "ctrl+shift+s",
         "when": "editorTextFocus"
       }
 

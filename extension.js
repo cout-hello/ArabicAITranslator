@@ -1,89 +1,40 @@
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
-const {
-    translateToArabic
-} = require("./aiTranslator");
+const { translateToArabic } = require("./aiTranslator");
+
+// =========================================================================
+// 🎯 1. الإعدادات والمسارات الموحدة (عدلي هنا فقط)
+// =========================================================================
+
+// مسار المشروع الخاص بكِ (ضع مسار مشروعك كاملاً هنا)
+// مثال على ويندوز: "C:/Users/name/Projects/my-app"
+const PROJECT_ROOT_PATH = "C:\\Users\\mikik\\OneDrive\\Desktop\\Ascpius-Team-website-";
+
+// مسارات ملفات اللغات بالنسبة لمشروعك (أو مسارات مطلقة إذا أردتِ)
+const ENGLISH_FILE_PATH = "src\\i18n\\locales\\en.json";
+const ARABIC_FILE_PATH = "src\\i18n\\locales\\ar.json";
+
+// البادئة (Prefix) لمفاتيح الترجمة
+//const PREFIX = "admin.dashboard";
+const PREFIX = "";
+
+const INDENT_SPACES = 2;
 
 
-// ==================================================
-// عدّل هذا فقط إذا تبغى تغير الـ PREFIX
-// مثال:
-// "admin.dashboard"
-// "QWER"
-// "users.profile"
-// أو "" بدون Prefix
-// ==================================================
-const PREFIX = "admin.dashboard";
-
-
-
-/**
- * Activate extension
- */
-function activate(context) {
-    const command = vscode.commands.registerCommand(
-        "translationHelper.translateSelection",
-        async function () {
-            await translateSelection();
-        }
-    );
-
-    const ejsCommand = vscode.commands.registerCommand(
-        "translationHelper.translateEjsSelection",
-        async function () {
-            await translateEjsSelection();
-        }
-    );
-
-
-    const aiCommand = vscode.commands.registerCommand(
-        "translationHelper.translateWithAI",
-        async function () {
-            await translateSelectionWithAI(context);
-        }
-    );
-
-    const ejsAiCommand = vscode.commands.registerCommand(
-        "translationHelper.translateEjsWithAI",
-        async function () {
-            await translateEjsWithAI(context);
-        }
-    );
-
-    const ejsStringAiCommand = vscode.commands.registerCommand(
-        "translationHelper.translateEjsStringWithAI",
-        async function () {
-            await translateEjsStringWithAI(context);
-        }
-    );
-
-
-    const apiKeyCommand = vscode.commands.registerCommand(
-        "translationHelper.setApiKey",
-        async function () {
-            await setOpenAIKey(context);
-        }
-    );
-
-    context.subscriptions.push(
-        command,
-        ejsCommand,
-        aiCommand,
-        ejsAiCommand,
-        ejsStringAiCommand,
-        apiKeyCommand
-    );
-}
-
-
+// =========================================================================
+// 🛠️ 2. دوال مساعدة موحدة لإدارة الملفات والبيانات
+// =========================================================================
 
 /**
- * Main translation function
+ * الاختصار: Ctrl + Shift + S
+ * - يترجم النص بالذكاء الاصطناعي
+ * - يضيفه إلى ملفات en.json و ar.json
+ * - يستبدل النص المحدد بـ "key" مباشرة (أو 'key') بدون {t()}
+ * - يفتح ar.json ويضع المؤشر على القيمة للمراجعة
  */
-async function translateSelection() {
+async function translateSelectionRawKey(context) {
     const editor = vscode.window.activeTextEditor;
-
     if (!editor) {
         vscode.window.showErrorMessage("Translation Helper: No active editor.");
         return;
@@ -91,1882 +42,449 @@ async function translateSelection() {
 
     const document = editor.document;
     const selections = editor.selections;
-
     const selectedTexts = selections
-        .map(selection => document.getText(selection))
-        .filter(text => text.length > 0);
+        .map(s => document.getText(s))
+        .filter(t => t.length > 0);
 
     if (selectedTexts.length === 0) {
-        vscode.window.showWarningMessage(
-            "حدد كلمة أو جملة أولاً ثم اضغط Ctrl + Alt + X."
-        );
+        vscode.window.showWarningMessage("حدد كلمة أو جملة أولاً ثم اضغط الاختصار.");
         return;
     }
 
-    const workspaceFolder =
-        vscode.workspace.getWorkspaceFolder(document.uri);
-
-    if (!workspaceFolder) {
-        vscode.window.showErrorMessage(
-            "افتح مشروعك داخل Workspace في VS Code أولاً."
-        );
+    const apiKey = await context.secrets.get("translationHelper.openaiApiKey");
+    if (!apiKey) {
+        const result = await vscode.window.showWarningMessage("ما فيه OpenAI API Key محفوظ.", "إضافة المفتاح");
+        if (result === "إضافة المفتاح") await setOpenAIKey(context);
         return;
     }
 
-    const config = vscode.workspace.getConfiguration("translationHelper");
+    let files;
+    try {
+        files = getLocaleFilesData();
+    } catch (err) {
+        vscode.window.showErrorMessage(err.message);
+        return;
+    }
 
-    const englishFile = config.get(
-        "englishFile",
-        "locales/en.json"
+    const { englishPath, arabicPath, englishData, arabicData } = files;
+
+    const uniqueEntries = [];
+    const seenKeys = new Set();
+
+    for (const originalText of selectedTexts) {
+        // تنظيف النص في حال تم تحديده مع علامات تنصيص
+        const cleanText = originalText.replace(/^['"]|['"]$/g, "").trim();
+        const key = createKey(cleanText);
+
+        if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            uniqueEntries.push({ originalText: cleanText, key });
+        }
+    }
+
+    // التحقق من تكرار المفتاح
+    const existing = uniqueEntries.filter(
+        e => Object.prototype.hasOwnProperty.call(englishData, e.key) ||
+            Object.prototype.hasOwnProperty.call(arabicData, e.key)
     );
 
-    const arabicFile = config.get(
-        "arabicFile",
-        "locales/ar.json"
+    if (existing.length > 0) {
+        const details = existing.map(e => e.key).join("\n");
+        const result = await vscode.window.showWarningMessage(
+            `المفتاح موجود مسبقاً:\n\n${details}\n\nلن يتم تكراره.`,
+            "إلغاء",
+            "استخدام الموجود"
+        );
+        if (result !== "استخدام الموجود") return;
+    }
+
+    // الترجمة بالذكاء الاصطناعي
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Translation Helper: جاري الترجمة بالذكاء الاصطناعي...",
+            cancellable: false
+        },
+        async () => {
+            for (const entry of uniqueEntries) {
+                if (!Object.prototype.hasOwnProperty.call(englishData, entry.key)) {
+                    englishData[entry.key] = entry.originalText;
+                }
+                if (!Object.prototype.hasOwnProperty.call(arabicData, entry.key)) {
+                    const translation = await translateToArabic(apiKey, entry.originalText);
+                    arabicData[entry.key] = translation;
+                }
+            }
+        }
     );
 
-    const indent = config.get("indent", 2);
+    // الحفظ في ملفات الترجمة
+    try {
+        saveLocaleFiles(englishPath, englishData, arabicPath, arabicData);
+    } catch (err) {
+        vscode.window.showErrorMessage(`حدث خطأ أثناء حفظ ملفات الترجمة:\n${err.message}`);
+        return;
+    }
 
-    const englishPath = resolveFilePath(
-        workspaceFolder.uri.fsPath,
-        englishFile
-    );
+    // استبدال النص المحدد بـ "key" مباشرة (بدون t وبدون أقواس)
+    const edit = new vscode.WorkspaceEdit();
+    for (const selection of selections) {
+        if (selection.isEmpty) continue;
+        const text = document.getText(selection).replace(/^['"]|['"]$/g, "").trim();
+        const key = createKey(text);
 
-    const arabicPath = resolveFilePath(
-        workspaceFolder.uri.fsPath,
-        arabicFile
-    );
+        // استبدال بـ "key"
+        edit.replace(document.uri, selection, `"${key}"`);
+    }
+
+    const applied = await vscode.workspace.applyEdit(edit);
+    if (!applied) {
+        vscode.window.showErrorMessage("تعذر تعديل الملف الحالي.");
+        return;
+    }
+    await document.save();
+
+    // فتح ar.json وتحديد مكان القيمة
+    const arabicDocument = await vscode.workspace.openTextDocument(arabicPath);
+    const arabicEditor = await vscode.window.showTextDocument(arabicDocument, vscode.ViewColumn.Beside);
+
+    const firstEntry = uniqueEntries[0];
+    if (firstEntry) {
+        const position = findJsonValuePosition(arabicDocument, firstEntry.key);
+        if (position) {
+            arabicEditor.selection = new vscode.Selection(position, position);
+            arabicEditor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+        }
+    }
+
+    vscode.window.showInformationMessage(`تمت إضافة وترجمة ${uniqueEntries.length} مفتاح.`);
+}
+
+
+/**
+ * تحويل المسار إلى مسار مطلق بناءً على PROJECT_ROOT_PATH
+ */
+function getAbsoluteFilePath(filePath) {
+    if (path.isAbsolute(filePath)) {
+        return filePath;
+    }
+    return path.join(PROJECT_ROOT_PATH, filePath);
+}
+
+/**
+ * قراءة ملفي الترجمة من المسارات المحددة
+ */
+function getLocaleFilesData() {
+    const englishPath = getAbsoluteFilePath(ENGLISH_FILE_PATH);
+    const arabicPath = getAbsoluteFilePath(ARABIC_FILE_PATH);
 
     if (!fs.existsSync(englishPath)) {
-        vscode.window.showErrorMessage(
-            `ملف اللغة الإنجليزية غير موجود:\n${englishFile}`
-        );
-        return;
+        throw new Error(`ملف اللغة الإنجليزية غير موجود في المسار:\n${englishPath}`);
     }
 
     if (!fs.existsSync(arabicPath)) {
-        vscode.window.showErrorMessage(
-            `ملف اللغة العربية غير موجود:\n${arabicFile}`
-        );
-        return;
+        throw new Error(`ملف اللغة العربية غير موجود في المسار:\n${arabicPath}`);
     }
 
     let englishData;
     let arabicData;
 
     try {
-        englishData = JSON.parse(
-            fs.readFileSync(englishPath, "utf8")
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            "تعذر قراءة ملف en.json. تأكد أنه JSON صالح."
-        );
-        return;
+        englishData = JSON.parse(fs.readFileSync(englishPath, "utf8"));
+    } catch (err) {
+        throw new Error(`تعذر قراءة ملف en.json، تأكد من صحة التنسيق:\n${err.message}`);
     }
 
     try {
-        arabicData = JSON.parse(
-            fs.readFileSync(arabicPath, "utf8")
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            "تعذر قراءة ملف ar.json. تأكد أنه JSON صالح."
-        );
-        return;
-    }
-
-    const entries = [];
-
-    for (const originalText of selectedTexts) {
-        const key = createKey(originalText);
-
-        entries.push({
-            originalText,
-            key
-        });
-    }
-
-    const uniqueEntries = [];
-    const seenKeys = new Set();
-
-    for (const entry of entries) {
-        if (!seenKeys.has(entry.key)) {
-            seenKeys.add(entry.key);
-            uniqueEntries.push(entry);
-        }
-    }
-
-    const existingKeys = [];
-
-    for (const entry of uniqueEntries) {
-        const existsInEnglish = Object.prototype.hasOwnProperty.call(
-            englishData,
-            entry.key
-        );
-
-        const existsInArabic = Object.prototype.hasOwnProperty.call(
-            arabicData,
-            entry.key
-        );
-
-        if (existsInEnglish || existsInArabic) {
-            existingKeys.push({
-                key: entry.key,
-                english: existsInEnglish,
-                arabic: existsInArabic
-            });
-        }
-    }
-
-    if (existingKeys.length > 0) {
-        const details = existingKeys
-            .map(item => {
-                let location = [];
-
-                if (item.english) {
-                    location.push("en.json");
-                }
-
-                if (item.arabic) {
-                    location.push("ar.json");
-                }
-
-                return `${item.key} (${location.join(" + ")})`;
-            })
-            .join("\n");
-
-        const result = await vscode.window.showWarningMessage(
-            `المفتاح موجود مسبقاً:\n\n${details}\n\nلن يتم تكراره.`,
-            "إلغاء",
-            "استخدام الموجود"
-        );
-
-        if (result !== "استخدام الموجود") {
-            return;
-        }
-    }
-
-    for (const entry of uniqueEntries) {
-        const existsInEnglish = Object.prototype.hasOwnProperty.call(
-            englishData,
-            entry.key
-        );
-
-        const existsInArabic = Object.prototype.hasOwnProperty.call(
-            arabicData,
-            entry.key
-        );
-
-        if (!existsInEnglish) {
-            englishData[entry.key] = entry.originalText;
-        }
-
-        if (!existsInArabic) {
-            arabicData[entry.key] = "";
-        }
-    }
-
-    try {
-        fs.writeFileSync(
-            englishPath,
-            JSON.stringify(englishData, null, indent) + "\n",
-            "utf8"
-        );
-
-        fs.writeFileSync(
-            arabicPath,
-            JSON.stringify(arabicData, null, indent) + "\n",
-            "utf8"
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            `حدث خطأ أثناء حفظ ملفات الترجمة:\n${error.message}`
-        );
-        return;
-    }
-
-    const edit = new vscode.WorkspaceEdit();
-
-    for (let i = 0; i < selections.length; i++) {
-        const selection = selections[i];
-
-        if (selection.isEmpty) {
-            continue;
-        }
-
-        const originalText = document.getText(selection);
-
-        const key = createKey(originalText);
-
-        const replacement = `<%= __("` + key + `")%>`;
-
-        edit.replace(
-            document.uri,
-            selection,
-            replacement
-        );
-    }
-
-    const applied = await vscode.workspace.applyEdit(edit);
-
-    if (!applied) {
-        vscode.window.showErrorMessage(
-            "تعذر تعديل الملف الحالي."
-        );
-        return;
-    }
-
-    await document.save();
-
-    const arabicDocument =
-        await vscode.workspace.openTextDocument(arabicPath);
-
-    const arabicEditor =
-        await vscode.window.showTextDocument(
-            arabicDocument,
-            vscode.ViewColumn.Beside
-        );
-
-    let targetEntry = null;
-
-    for (const entry of uniqueEntries) {
-        const key = entry.key;
-
-        if (
-            Object.prototype.hasOwnProperty.call(
-                arabicData,
-                key
-            )
-        ) {
-            if (arabicData[key] === "") {
-                targetEntry = entry;
-                break;
-            }
-        }
-    }
-
-    if (targetEntry) {
-        const position =
-            findJsonValuePosition(
-                arabicDocument,
-                targetEntry.key
-            );
-
-        if (position) {
-            arabicEditor.selection =
-                new vscode.Selection(
-                    position,
-                    position
-                );
-
-            arabicEditor.revealRange(
-                new vscode.Range(
-                    position,
-                    position
-                ),
-                vscode.TextEditorRevealType.InCenter
-            );
-        }
-    }
-
-    vscode.window.showInformationMessage(
-        `تمت إضافة ${uniqueEntries.length} ترجمة.`
-    );
-}
-
-
-/**
- * Convert selected text into translation key.
- *
- * Spaces / tabs / new lines become underscores.
- * Prefix is automatically added.
- */
-function createKey(text) {
-    let key = text
-        .trim()
-        .replace(/\s+/g, "_");
-
-    if (PREFIX && PREFIX.trim() !== "") {
-        key = PREFIX.trim() + "." + key;
-    }
-
-    return key;
-}
-
-function parseQuotedEjsText(text) {
-    const trimmed = text.trim();
-
-    if (trimmed.length < 2) {
-        return null;
-    }
-
-    const firstChar = trimmed[0];
-    const lastChar =
-        trimmed[trimmed.length - 1];
-
-    const isSingleQuoted =
-        firstChar === "'" &&
-        lastChar === "'";
-
-    const isDoubleQuoted =
-        firstChar === '"' &&
-        lastChar === '"';
-
-    if (
-        !isSingleQuoted &&
-        !isDoubleQuoted
-    ) {
-        return null;
-    }
-
-    const innerText =
-        trimmed.slice(1, -1);
-
-    if (!innerText.trim()) {
-        return null;
+        arabicData = JSON.parse(fs.readFileSync(arabicPath, "utf8"));
+    } catch (err) {
+        throw new Error(`تعذر قراءة ملف ar.json، تأكد من صحة التنسيق:\n${err.message}`);
     }
 
     return {
-        text: innerText,
-        quote: firstChar
+        englishPath,
+        arabicPath,
+        englishData,
+        arabicData
     };
 }
 
+/**
+ * حفظ ملفي الترجمة
+ */
+function saveLocaleFiles(englishPath, englishData, arabicPath, arabicData) {
+    fs.writeFileSync(
+        englishPath,
+        JSON.stringify(englishData, null, INDENT_SPACES) + "\n",
+        "utf8"
+    );
+    fs.writeFileSync(
+        arabicPath,
+        JSON.stringify(arabicData, null, INDENT_SPACES) + "\n",
+        "utf8"
+    );
+}
 
 /**
- * Find the position where the Arabic JSON value starts.
- *
- * Example:
- * "hello": ""
- *
- * Returns the position between the two quotes:
- * "hello": |""
+ * إنشاء مفتاح الترجمة مع الـ PREFIX
+ */
+function createKey(text) {
+    let key = text.trim().replace(/\s+/g, "_");
+    if (PREFIX && PREFIX.trim() !== "") {
+        key = PREFIX.trim() + "." + key;
+    }
+    return key;
+}
+
+/**
+ * العثور على موضع بداية القيمة في ملف الـ JSON لوضع المؤشر عنده للمراجعة
  */
 function findJsonValuePosition(document, key) {
     const text = document.getText();
-
     const escapedKey = escapeRegExp(key);
-
-    const regex = new RegExp(
-        `"${escapedKey}"\\s*:\\s*""`
-    );
-
+    const regex = new RegExp(`"${escapedKey}"\\s*:\\s*"([^"]*)"`);
     const match = regex.exec(text);
 
     if (!match) {
         return null;
     }
 
-    const valueStart =
-        match.index +
-        match[0].lastIndexOf('""') +
-        1;
-
+    const valueStart = match.index + match[0].indexOf('"', match[0].indexOf(':')) + 1;
     return document.positionAt(valueStart);
+}
+
+function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseQuotedEjsText(text) {
+    const trimmed = text.trim();
+    if (trimmed.length < 2) return null;
+
+    const firstChar = trimmed[0];
+    const lastChar = trimmed[trimmed.length - 1];
+
+    if ((firstChar === "'" && lastChar === "'") || (firstChar === '"' && lastChar === '"')) {
+        const innerText = trimmed.slice(1, -1);
+        if (!innerText.trim()) return null;
+        return { text: innerText, quote: firstChar };
+    }
+    return null;
+}
+
+
+// =========================================================================
+// 🚀 3. الأوامر التنفيذية (Commands)
+// =========================================================================
+
+/**
+ * الاختصار: Ctrl + Shift + X
+ * - يترجم النص بالذكاء الاصطناعي
+ * - يضيفه إلى ملفات en.json و ar.json
+ * - يستبدل النص المحدد بـ {t("key")}
+ * - يفتح ar.json ويضع المؤشر على القيمة العربية للمراجعة
+ */
+async function translateSelectionWithReact(context) {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        vscode.window.showErrorMessage("Translation Helper: No active editor.");
+        return;
+    }
+
+    const document = editor.document;
+    const selections = editor.selections;
+    const selectedTexts = selections
+        .map(s => document.getText(s))
+        .filter(t => t.length > 0);
+
+    if (selectedTexts.length === 0) {
+        vscode.window.showWarningMessage("حدد كلمة أو جملة أولاً ثم اضغط الاختصار.");
+        return;
+    }
+
+    const apiKey = await context.secrets.get("translationHelper.openaiApiKey");
+    if (!apiKey) {
+        const result = await vscode.window.showWarningMessage("ما فيه OpenAI API Key محفوظ.", "إضافة المفتاح");
+        if (result === "إضافة المفتاح") await setOpenAIKey(context);
+        return;
+    }
+
+    let files;
+    try {
+        files = getLocaleFilesData();
+    } catch (err) {
+        vscode.window.showErrorMessage(err.message);
+        return;
+    }
+
+    const { englishPath, arabicPath, englishData, arabicData } = files;
+
+    const uniqueEntries = [];
+    const seenKeys = new Set();
+
+    for (const originalText of selectedTexts) {
+        const key = createKey(originalText);
+        if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            uniqueEntries.push({ originalText, key });
+        }
+    }
+
+    // التحقق إذا كان المفتاح موجوداً مسبقاً
+    const existing = uniqueEntries.filter(
+        e => Object.prototype.hasOwnProperty.call(englishData, e.key) ||
+            Object.prototype.hasOwnProperty.call(arabicData, e.key)
+    );
+
+    if (existing.length > 0) {
+        const details = existing.map(e => e.key).join("\n");
+        const result = await vscode.window.showWarningMessage(
+            `المفتاح موجود مسبقاً:\n\n${details}\n\nلن يتم تكراره.`,
+            "إلغاء",
+            "استخدام الموجود"
+        );
+        if (result !== "استخدام الموجود") return;
+    }
+
+    // الترجمة بالذكاء الاصطناعي
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Translation Helper: جاري الترجمة بالذكاء الاصطناعي...",
+            cancellable: false
+        },
+        async () => {
+            for (const entry of uniqueEntries) {
+                if (!Object.prototype.hasOwnProperty.call(englishData, entry.key)) {
+                    englishData[entry.key] = entry.originalText;
+                }
+                if (!Object.prototype.hasOwnProperty.call(arabicData, entry.key)) {
+                    const translation = await translateToArabic(apiKey, entry.originalText);
+                    arabicData[entry.key] = translation;
+                }
+            }
+        }
+    );
+
+    // الحفظ
+    try {
+        saveLocaleFiles(englishPath, englishData, arabicPath, arabicData);
+    } catch (err) {
+        vscode.window.showErrorMessage(`حدث خطأ أثناء حفظ ملفات الترجمة:\n${err.message}`);
+        return;
+    }
+
+    // استبدال النص بـ {t("key")}
+    const edit = new vscode.WorkspaceEdit();
+    for (const selection of selections) {
+        if (selection.isEmpty) continue;
+        const originalText = document.getText(selection);
+        const key = createKey(originalText);
+        edit.replace(document.uri, selection, `{t("${key}")}`);
+    }
+
+    const applied = await vscode.workspace.applyEdit(edit);
+    if (!applied) {
+        vscode.window.showErrorMessage("تعذر تعديل الملف الحالي.");
+        return;
+    }
+    await document.save();
+
+    // فتح ar.json بجانب المحرر ووضع المؤشر على القيمة
+    const arabicDocument = await vscode.workspace.openTextDocument(arabicPath);
+    const arabicEditor = await vscode.window.showTextDocument(arabicDocument, vscode.ViewColumn.Beside);
+
+    const firstEntry = uniqueEntries[0];
+    if (firstEntry) {
+        const position = findJsonValuePosition(arabicDocument, firstEntry.key);
+        if (position) {
+            arabicEditor.selection = new vscode.Selection(position, position);
+            arabicEditor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+        }
+    }
+
+    vscode.window.showInformationMessage(`تمت ترجمة وإضافة ${uniqueEntries.length} مفتاح.`);
 }
 
 
 /**
- * Escape text for RegExp
+ * أوامر EJS السابقة تم تحديثها لتعتمد على نفس المسارات الموحدة
  */
-function escapeRegExp(text) {
-    return text.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        "\\$&"
-    );
-}
-
-function resolveFilePath(workspacePath, filePath) {
-    if (path.isAbsolute(filePath)) {
-        return filePath;
-    }
-
-    return path.join(workspacePath, filePath);
-}
-
-async function translateEjsSelection() {
-    const editor = vscode.window.activeTextEditor;
-
-    if (!editor) {
-        vscode.window.showErrorMessage(
-            "Translation Helper: No active editor."
-        );
-        return;
-    }
-
-    const document = editor.document;
-
-    const selections = editor.selections;
-
-    const selectedTexts = selections
-        .map(selection => document.getText(selection))
-        .filter(text => text.length > 0);
-
-    if (selectedTexts.length === 0) {
-        vscode.window.showWarningMessage(
-            "حددي النص مع علامة التنصيص كاملة أولاً."
-        );
-        return;
-    }
-
-    const workspaceFolder =
-        vscode.workspace.getWorkspaceFolder(document.uri);
-
-    if (!workspaceFolder) {
-        vscode.window.showErrorMessage(
-            "افتحي مشروعك داخل Workspace في VS Code أولاً."
-        );
-        return;
-    }
-
-    const config =
-        vscode.workspace.getConfiguration("translationHelper");
-
-    const englishFile =
-        config.get("englishFile", "locales/en.json");
-
-    const arabicFile =
-        config.get("arabicFile", "locales/ar.json");
-
-    const indent =
-        config.get("indent", 2);
-
-    const englishPath =
-        resolveFilePath(
-            workspaceFolder.uri.fsPath,
-            englishFile
-        );
-
-    const arabicPath =
-        resolveFilePath(
-            workspaceFolder.uri.fsPath,
-            arabicFile
-        );
-
-    if (!fs.existsSync(englishPath)) {
-        vscode.window.showErrorMessage(
-            `ملف اللغة الإنجليزية غير موجود:\n${englishFile}`
-        );
-        return;
-    }
-
-    if (!fs.existsSync(arabicPath)) {
-        vscode.window.showErrorMessage(
-            `ملف اللغة العربية غير موجود:\n${arabicFile}`
-        );
-        return;
-    }
-
-    let englishData;
-    let arabicData;
-
-    try {
-        englishData = JSON.parse(
-            fs.readFileSync(englishPath, "utf8")
-        );
-
-        arabicData = JSON.parse(
-            fs.readFileSync(arabicPath, "utf8")
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            `تعذر قراءة ملفات الترجمة:\n${error.message}`
-        );
-        return;
-    }
-
-    const entries = [];
-
-    for (const selectedText of selectedTexts) {
-        const text = selectedText.trim();
-
-        const firstChar = text[0];
-        const lastChar = text[text.length - 1];
-
-        const isSingleQuoted =
-            firstChar === "'" &&
-            lastChar === "'";
-
-        const isDoubleQuoted =
-            firstChar === '"' &&
-            lastChar === '"';
-
-        if (!isSingleQuoted && !isDoubleQuoted) {
-            vscode.window.showWarningMessage(
-                "تراك حددتي النص ناقص، افتحي عيونك وحددي علامة التنصيص معه 😭"
-            );
-            return;
-        }
-
-        const originalText =
-            text.slice(1, -1);
-
-        if (!originalText.trim()) {
-            vscode.window.showWarningMessage(
-                "النص المحدد فارغ."
-            );
-            return;
-        }
-
-        const key =
-            createKey(originalText);
-
-        entries.push({
-            originalText,
-            key,
-            quote: firstChar
-        });
-    }
-
-    const uniqueEntries = [];
-    const seenKeys = new Set();
-
-    for (const entry of entries) {
-        if (!seenKeys.has(entry.key)) {
-            seenKeys.add(entry.key);
-            uniqueEntries.push(entry);
-        }
-    }
-
-    const existingKeys = [];
-
-    for (const entry of uniqueEntries) {
-        const existsInEnglish =
-            Object.prototype.hasOwnProperty.call(
-                englishData,
-                entry.key
-            );
-
-        const existsInArabic =
-            Object.prototype.hasOwnProperty.call(
-                arabicData,
-                entry.key
-            );
-
-        if (existsInEnglish || existsInArabic) {
-            existingKeys.push({
-                key: entry.key,
-                english: existsInEnglish,
-                arabic: existsInArabic
-            });
-        }
-    }
-
-    if (existingKeys.length > 0) {
-        const details =
-            existingKeys
-                .map(item => {
-                    const locations = [];
-
-                    if (item.english) {
-                        locations.push("en.json");
-                    }
-
-                    if (item.arabic) {
-                        locations.push("ar.json");
-                    }
-
-                    return `${item.key} (${locations.join(" + ")})`;
-                })
-                .join("\n");
-
-        const result =
-            await vscode.window.showWarningMessage(
-                `المفتاح موجود مسبقاً:\n\n${details}\n\nلن يتم تكراره.`,
-                "إلغاء",
-                "استخدام الموجود"
-            );
-
-        if (result !== "استخدام الموجود") {
-            return;
-        }
-    }
-
-    for (const entry of uniqueEntries) {
-        const existsInEnglish =
-            Object.prototype.hasOwnProperty.call(
-                englishData,
-                entry.key
-            );
-
-        const existsInArabic =
-            Object.prototype.hasOwnProperty.call(
-                arabicData,
-                entry.key
-            );
-
-        if (!existsInEnglish) {
-            englishData[entry.key] =
-                entry.originalText;
-        }
-
-        if (!existsInArabic) {
-            arabicData[entry.key] = "";
-        }
-    }
-
-    try {
-        fs.writeFileSync(
-            englishPath,
-            JSON.stringify(
-                englishData,
-                null,
-                indent
-            ) + "\n",
-            "utf8"
-        );
-
-        fs.writeFileSync(
-            arabicPath,
-            JSON.stringify(
-                arabicData,
-                null,
-                indent
-            ) + "\n",
-            "utf8"
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            `حدث خطأ أثناء حفظ ملفات الترجمة:\n${error.message}`
-        );
-        return;
-    }
-
-    const edit =
-        new vscode.WorkspaceEdit();
-
-    for (let i = 0; i < selections.length; i++) {
-        const selection = selections[i];
-
-        if (selection.isEmpty) {
-            continue;
-        }
-
-        const selectedText =
-            document.getText(selection).trim();
-
-        const firstChar =
-            selectedText[0];
-
-        const originalText =
-            selectedText.slice(1, -1);
-
-        const key =
-            createKey(originalText);
-
-        let replacement;
-
-        if (firstChar === "'") {
-            replacement =
-                `__('${key}')`;
-        } else {
-            replacement =
-                `__("${key}")`;
-        }
-
-        edit.replace(
-            document.uri,
-            selection,
-            replacement
-        );
-    }
-
-    const applied =
-        await vscode.workspace.applyEdit(edit);
-
-    if (!applied) {
-        vscode.window.showErrorMessage(
-            "تعذر تعديل الملف الحالي."
-        );
-        return;
-    }
-
-    await document.save();
-
-    const arabicDocument =
-        await vscode.workspace.openTextDocument(
-            arabicPath
-        );
-
-    const arabicEditor =
-        await vscode.window.showTextDocument(
-            arabicDocument,
-            vscode.ViewColumn.Beside
-        );
-
-    let targetEntry = null;
-
-    for (const entry of uniqueEntries) {
-        if (
-            Object.prototype.hasOwnProperty.call(
-                arabicData,
-                entry.key
-            ) &&
-            arabicData[entry.key] === ""
-        ) {
-            targetEntry = entry;
-            break;
-        }
-    }
-
-    if (targetEntry) {
-        const position =
-            findJsonValuePosition(
-                arabicDocument,
-                targetEntry.key
-            );
-
-        if (position) {
-            arabicEditor.selection =
-                new vscode.Selection(
-                    position,
-                    position
-                );
-
-            arabicEditor.revealRange(
-                new vscode.Range(
-                    position,
-                    position
-                ),
-                vscode.TextEditorRevealType.InCenter
-            );
-        }
-    }
-
-    vscode.window.showInformationMessage(
-        `تمت إضافة ${uniqueEntries.length} ترجمة لـ EJS.`
-    );
-}
-
-async function translateSelectionWithAI(context) {
-    const editor = vscode.window.activeTextEditor;
-
-    if (!editor) {
-        vscode.window.showErrorMessage(
-            "Translation Helper: No active editor."
-        );
-        return;
-    }
-
-    const document = editor.document;
-
-    const selectedTexts = editor.selections
-        .map(selection => document.getText(selection))
-        .filter(text => text.length > 0);
-
-    if (selectedTexts.length === 0) {
-        vscode.window.showWarningMessage(
-            "حدد كلمة أو جملة أولاً."
-        );
-        return;
-    }
-
-    const apiKey = await context.secrets.get(
-        "translationHelper.openaiApiKey"
-    );
-
-    if (!apiKey) {
-        const result = await vscode.window.showWarningMessage(
-            "ما فيه OpenAI API Key محفوظ.",
-            "إضافة المفتاح"
-        );
-
-        if (result === "إضافة المفتاح") {
-            await setOpenAIKey(context);
-        }
-
-        return;
-    }
-
-    const workspaceFolder =
-        vscode.workspace.getWorkspaceFolder(document.uri);
-
-    if (!workspaceFolder) {
-        vscode.window.showErrorMessage(
-            "افتح مشروعك داخل Workspace."
-        );
-        return;
-    }
-
-    const config =
-        vscode.workspace.getConfiguration("translationHelper");
-
-    const englishFile =
-        config.get(
-            "englishFile",
-            "locales/en.json"
-        );
-
-    const arabicFile =
-        config.get(
-            "arabicFile",
-            "locales/ar.json"
-        );
-
-    const indent =
-        config.get("indent", 2);
-
-    const englishPath =
-        resolveFilePath(
-            workspaceFolder.uri.fsPath,
-            englishFile
-        );
-
-    const arabicPath =
-        resolveFilePath(
-            workspaceFolder.uri.fsPath,
-            arabicFile
-        );
-
-    if (!fs.existsSync(englishPath)) {
-        vscode.window.showErrorMessage(
-            `ملف اللغة الإنجليزية غير موجود:\n${englishPath}`
-        );
-        return;
-    }
-
-    if (!fs.existsSync(arabicPath)) {
-        vscode.window.showErrorMessage(
-            `ملف اللغة العربية غير موجود:\n${arabicPath}`
-        );
-        return;
-    }
-
-    let englishData;
-    let arabicData;
-
-    try {
-        englishData = JSON.parse(
-            fs.readFileSync(
-                englishPath,
-                "utf8"
-            )
-        );
-
-        arabicData = JSON.parse(
-            fs.readFileSync(
-                arabicPath,
-                "utf8"
-            )
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            `تعذر قراءة ملفات الترجمة:\n${error.message}`
-        );
-        return;
-    }
-
-    const entries = [];
-
-    for (const originalText of selectedTexts) {
-        const key =
-            createKey(originalText);
-
-        entries.push({
-            originalText,
-            key
-        });
-    }
-
-    const uniqueEntries = [];
-    const seenKeys = new Set();
-
-    for (const entry of entries) {
-        if (!seenKeys.has(entry.key)) {
-            seenKeys.add(entry.key);
-            uniqueEntries.push(entry);
-        }
-    }
-
-    const existingKeys = [];
-
-    for (const entry of uniqueEntries) {
-        const existsInEnglish =
-            Object.prototype.hasOwnProperty.call(
-                englishData,
-                entry.key
-            );
-
-        const existsInArabic =
-            Object.prototype.hasOwnProperty.call(
-                arabicData,
-                entry.key
-            );
-
-        if (
-            existsInEnglish ||
-            existsInArabic
-        ) {
-            existingKeys.push({
-                key: entry.key,
-                english: existsInEnglish,
-                arabic: existsInArabic
-            });
-        }
-    }
-
-    if (existingKeys.length > 0) {
-        const details =
-            existingKeys
-                .map(item => {
-                    const locations = [];
-
-                    if (item.english) {
-                        locations.push("en.json");
-                    }
-
-                    if (item.arabic) {
-                        locations.push("ar.json");
-                    }
-
-                    return `${item.key} (${locations.join(" + ")})`;
-                })
-                .join("\n");
-
-        const result =
-            await vscode.window.showWarningMessage(
-                `المفتاح موجود مسبقاً:\n\n${details}\n\nلن يتم تكراره.`,
-                "إلغاء",
-                "استخدام الموجود"
-            );
-
-        if (result !== "استخدام الموجود") {
-            return;
-        }
-    }
-
-    await vscode.window.withProgress(
-        {
-            location:
-                vscode.ProgressLocation.Notification,
-            title:
-                "Translation Helper: جاري الترجمة بالذكاء الاصطناعي...",
-            cancellable: false
-        },
-        async () => {
-            for (const entry of uniqueEntries) {
-                const existsInEnglish =
-                    Object.prototype.hasOwnProperty.call(
-                        englishData,
-                        entry.key
-                    );
-
-                const existsInArabic =
-                    Object.prototype.hasOwnProperty.call(
-                        arabicData,
-                        entry.key
-                    );
-
-                if (!existsInEnglish) {
-                    englishData[entry.key] =
-                        entry.originalText;
-                }
-
-                if (!existsInArabic) {
-                    const arabicTranslation =
-                        await translateToArabic(
-                            apiKey,
-                            entry.originalText
-                        );
-
-                    arabicData[entry.key] =
-                        arabicTranslation;
-                }
-            }
-        }
-    );
-
-    try {
-        fs.writeFileSync(
-            englishPath,
-            JSON.stringify(
-                englishData,
-                null,
-                indent
-            ) + "\n",
-            "utf8"
-        );
-
-        fs.writeFileSync(
-            arabicPath,
-            JSON.stringify(
-                arabicData,
-                null,
-                indent
-            ) + "\n",
-            "utf8"
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            `حدث خطأ أثناء حفظ ملفات الترجمة:\n${error.message}`
-        );
-        return;
-    }
-
-    const edit =
-        new vscode.WorkspaceEdit();
-
-    for (const selection of editor.selections) {
-        if (selection.isEmpty) {
-            continue;
-        }
-
-        const originalText =
-            document.getText(selection);
-
-        const key =
-            createKey(originalText);
-
-        const replacement =
-            `<%= __("` +
-            key +
-            `")%>`;
-
-        edit.replace(
-            document.uri,
-            selection,
-            replacement
-        );
-    }
-
-    const applied =
-        await vscode.workspace.applyEdit(
-            edit
-        );
-
-    if (!applied) {
-        vscode.window.showErrorMessage(
-            "تعذر تعديل الملف الحالي."
-        );
-        return;
-    }
-
-    await document.save();
-
-    const arabicDocument =
-        await vscode.workspace.openTextDocument(
-            arabicPath
-        );
-
-    const arabicEditor =
-        await vscode.window.showTextDocument(
-            arabicDocument,
-            vscode.ViewColumn.Beside
-        );
-
-    const firstEntry =
-        uniqueEntries[0];
-
-    if (firstEntry) {
-        const position =
-            findJsonValuePosition(
-                arabicDocument,
-                firstEntry.key
-            );
-
-        if (position) {
-            arabicEditor.selection =
-                new vscode.Selection(
-                    position,
-                    position
-                );
-
-            arabicEditor.revealRange(
-                new vscode.Range(
-                    position,
-                    position
-                ),
-                vscode.TextEditorRevealType.InCenter
-            );
-        }
-    }
-
-    vscode.window.showInformationMessage(
-        `تمت ترجمة ${uniqueEntries.length} نص بالذكاء الاصطناعي. راجع الترجمة قبل اعتمادها.`
-    );
-}
-
 async function translateEjsWithAI(context) {
     const editor = vscode.window.activeTextEditor;
-
-    if (!editor) {
-        vscode.window.showErrorMessage(
-            "Translation Helper: No active editor."
-        );
-        return;
-    }
+    if (!editor) return;
 
     const document = editor.document;
-
     const selections = editor.selections;
-
-    const selectedTexts = selections
-        .map(selection => document.getText(selection))
-        .filter(text => text.length > 0);
-
-    if (selectedTexts.length === 0) {
-        vscode.window.showWarningMessage(
-            "حدد النص داخل علامات التنصيص أولاً."
-        );
-        return;
-    }
-
-    /*
-     * EJS mode يدعم تحديد نص واحد أو أكثر.
-     *
-     * مثال:
-     * 'Basic'
-     * "Leave Requests"
-     */
+    const selectedTexts = selections.map(s => document.getText(s)).filter(t => t.length > 0);
 
     const entries = [];
-
-    for (const selectedText of selectedTexts) {
-        const parsed = parseQuotedEjsText(selectedText);
-
+    for (const text of selectedTexts) {
+        const parsed = parseQuotedEjsText(text);
         if (!parsed) {
-            vscode.window.showWarningMessage(
-                "في Ctrl + Shift + Q يجب تحديد النص كاملًا مع علامات التنصيص، مثل 'Basic' أو \"Basic\"."
-            );
+            vscode.window.showWarningMessage("حدد النص كاملاً مع علامات التنصيص مثل 'Text' أو \"Text\".");
             return;
         }
-
         entries.push(parsed);
     }
 
-    const apiKey = await context.secrets.get(
-        "translationHelper.openaiApiKey"
-    );
-
+    const apiKey = await context.secrets.get("translationHelper.openaiApiKey");
     if (!apiKey) {
-        const result = await vscode.window.showWarningMessage(
-            "ما فيه OpenAI API Key محفوظ.",
-            "إضافة المفتاح"
-        );
-
-        if (result === "إضافة المفتاح") {
-            await setOpenAIKey(context);
-        }
-
+        await setOpenAIKey(context);
         return;
     }
 
-    const workspaceFolder =
-        vscode.workspace.getWorkspaceFolder(document.uri);
-
-    if (!workspaceFolder) {
-        vscode.window.showErrorMessage(
-            "افتح مشروعك داخل Workspace."
-        );
-        return;
-    }
-
-    const config =
-        vscode.workspace.getConfiguration(
-            "translationHelper"
-        );
-
-    const englishFile =
-        config.get(
-            "englishFile",
-            "locales/en.json"
-        );
-
-    const arabicFile =
-        config.get(
-            "arabicFile",
-            "locales/ar.json"
-        );
-
-    const indent =
-        config.get("indent", 2);
-
-    const englishPath =
-        resolveFilePath(
-            workspaceFolder.uri.fsPath,
-            englishFile
-        );
-
-    const arabicPath =
-        resolveFilePath(
-            workspaceFolder.uri.fsPath,
-            arabicFile
-        );
-
-    if (!fs.existsSync(englishPath)) {
-        vscode.window.showErrorMessage(
-            `ملف اللغة الإنجليزية غير موجود:\n${englishFile}`
-        );
-        return;
-    }
-
-    if (!fs.existsSync(arabicPath)) {
-        vscode.window.showErrorMessage(
-            `ملف اللغة العربية غير موجود:\n${arabicFile}`
-        );
-        return;
-    }
-
-    let englishData;
-    let arabicData;
-
+    let files;
     try {
-        englishData = JSON.parse(
-            fs.readFileSync(
-                englishPath,
-                "utf8"
-            )
-        );
-
-        arabicData = JSON.parse(
-            fs.readFileSync(
-                arabicPath,
-                "utf8"
-            )
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            `تعذر قراءة ملفات الترجمة:\n${error.message}`
-        );
+        files = getLocaleFilesData();
+    } catch (err) {
+        vscode.window.showErrorMessage(err.message);
         return;
     }
 
-    /*
-     * نبني الـ entries باستخدام النص بدون quotes.
-     *
-     * 'Leave Requests'
-     *        ↓
-     * Leave Requests
-     *        ↓
-     * createKey()
-     *        ↓
-     * admin.dashboard.Leave_Requests
-     */
+    const { englishPath, arabicPath, englishData, arabicData } = files;
 
     const uniqueEntries = [];
     const seenKeys = new Set();
-
     for (const entry of entries) {
         const key = createKey(entry.text);
-
-        if (seenKeys.has(key)) {
-            continue;
-        }
-
-        seenKeys.add(key);
-
-        uniqueEntries.push({
-            ...entry,
-            key
-        });
-    }
-
-    const existingKeys = [];
-
-    for (const entry of uniqueEntries) {
-        const existsInEnglish =
-            Object.prototype.hasOwnProperty.call(
-                englishData,
-                entry.key
-            );
-
-        const existsInArabic =
-            Object.prototype.hasOwnProperty.call(
-                arabicData,
-                entry.key
-            );
-
-        if (
-            existsInEnglish ||
-            existsInArabic
-        ) {
-            existingKeys.push({
-                key: entry.key,
-                english: existsInEnglish,
-                arabic: existsInArabic
-            });
-        }
-    }
-
-    if (existingKeys.length > 0) {
-        const details =
-            existingKeys
-                .map(item => {
-                    const locations = [];
-
-                    if (item.english) {
-                        locations.push("en.json");
-                    }
-
-                    if (item.arabic) {
-                        locations.push("ar.json");
-                    }
-
-                    return `${item.key} (${locations.join(" + ")})`;
-                })
-                .join("\n");
-
-        const result =
-            await vscode.window.showWarningMessage(
-                `المفتاح موجود مسبقاً:\n\n${details}\n\nلن يتم تكراره.`,
-                "إلغاء",
-                "استخدام الموجود"
-            );
-
-        if (result !== "استخدام الموجود") {
-            return;
+        if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            uniqueEntries.push({ ...entry, key });
         }
     }
 
     await vscode.window.withProgress(
         {
-            location:
-                vscode.ProgressLocation.Notification,
-            title:
-                "Translation Helper: جاري الترجمة بالذكاء الاصطناعي...",
+            location: vscode.ProgressLocation.Notification,
+            title: "Translation Helper: جاري الترجمة بالذكاء الاصطناعي...",
             cancellable: false
         },
         async () => {
             for (const entry of uniqueEntries) {
-                const existsInEnglish =
-                    Object.prototype.hasOwnProperty.call(
-                        englishData,
-                        entry.key
-                    );
-
-                const existsInArabic =
-                    Object.prototype.hasOwnProperty.call(
-                        arabicData,
-                        entry.key
-                    );
-
-                if (!existsInEnglish) {
-                    englishData[entry.key] =
-                        entry.text;
-                }
-
-                if (!existsInArabic) {
-                    const arabicTranslation =
-                        await translateToArabic(
-                            apiKey,
-                            entry.text
-                        );
-
-                    arabicData[entry.key] =
-                        arabicTranslation;
+                if (!englishData[entry.key]) englishData[entry.key] = entry.text;
+                if (!arabicData[entry.key]) {
+                    arabicData[entry.key] = await translateToArabic(apiKey, entry.text);
                 }
             }
         }
     );
 
-    try {
-        fs.writeFileSync(
-            englishPath,
-            JSON.stringify(
-                englishData,
-                null,
-                indent
-            ) + "\n",
-            "utf8"
-        );
+    saveLocaleFiles(englishPath, englishData, arabicPath, arabicData);
 
-        fs.writeFileSync(
-            arabicPath,
-            JSON.stringify(
-                arabicData,
-                null,
-                indent
-            ) + "\n",
-            "utf8"
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            `حدث خطأ أثناء حفظ ملفات الترجمة:\n${error.message}`
-        );
-        return;
-    }
-
-    /*
-     * الآن فقط نعدل الـ selection نفسه.
-     *
-     * 'Basic'
-     * ↓
-     * __('admin.dashboard.Basic')
-     *
-     * "Basic"
-     * ↓
-     * __("admin.dashboard.Basic")
-     */
-
-    const edit =
-        new vscode.WorkspaceEdit();
-
+    const edit = new vscode.WorkspaceEdit();
     for (let i = 0; i < selections.length; i++) {
         const selection = selections[i];
-
-        if (selection.isEmpty) {
-            continue;
-        }
-
+        if (selection.isEmpty) continue;
         const entry = entries[i];
-
-        const uniqueEntry =
-            uniqueEntries.find(
-                item =>
-                    item.key ===
-                    createKey(entry.text)
-            );
-
-        if (!uniqueEntry) {
-            continue;
-        }
-
-        const replacement =
-            "__(" +
-            entry.quote +
-            uniqueEntry.key +
-            entry.quote +
-            ")";
-
-
-        /*
-         * نحافظ على نفس نوع الـ quote.
-         *
-         * 'Basic'
-         * ↓
-         * __('admin.dashboard.Basic')
-         *
-         * "Basic"
-         * ↓
-         * __("admin.dashboard.Basic")
-         */
-
-        edit.replace(
-            document.uri,
-            selection,
-            replacement
-        );
+        const key = createKey(entry.text);
+        edit.replace(document.uri, selection, `__(${entry.quote}${key}${entry.quote})`);
     }
 
-    const applied =
-        await vscode.workspace.applyEdit(
-            edit
-        );
-
-    if (!applied) {
-        vscode.window.showErrorMessage(
-            "تعذر تعديل ملف EJS الحالي."
-        );
-        return;
-    }
-
+    await vscode.workspace.applyEdit(edit);
     await document.save();
-
-    vscode.window.showInformationMessage(
-        `تمت ترجمة ${uniqueEntries.length} نص بالذكاء الاصطناعي.`
-    );
+    vscode.window.showInformationMessage(`تمت ترجمة ${uniqueEntries.length} نصوص لـ EJS.`);
 }
-
-async function translateEjsStringWithAI(context) {
-    const editor = vscode.window.activeTextEditor;
-
-    if (!editor) {
-        vscode.window.showErrorMessage(
-            "Translation Helper: No active editor."
-        );
-        return;
-    }
-
-    const document = editor.document;
-
-    const selections = editor.selections;
-
-    const selectedTexts = selections
-        .map(selection => document.getText(selection))
-        .filter(text => text.length > 0);
-
-    if (selectedTexts.length === 0) {
-        vscode.window.showWarningMessage(
-            "حدد النص مع علامات التنصيص كاملة أولاً."
-        );
-        return;
-    }
-
-    const entries = [];
-
-    for (const selectedText of selectedTexts) {
-        const trimmed = selectedText.trim();
-
-        if (trimmed.length < 2) {
-            vscode.window.showWarningMessage(
-                "تراك حددتي النص ناقص، افتحي عيونك وحددي علامة التنصيص معه 😭"
-            );
-            return;
-        }
-
-        const firstChar = trimmed[0];
-        const lastChar =
-            trimmed[trimmed.length - 1];
-
-        const isSingleQuoted =
-            firstChar === "'" &&
-            lastChar === "'";
-
-        const isDoubleQuoted =
-            firstChar === '"' &&
-            lastChar === '"';
-
-        if (!isSingleQuoted && !isDoubleQuoted) {
-            vscode.window.showWarningMessage(
-                "تراك حددتي النص ناقص، افتحي عيونك وحددي علامة التنصيص معه 😭"
-            );
-            return;
-        }
-
-        const originalText =
-            trimmed.slice(1, -1);
-
-        if (!originalText.trim()) {
-            vscode.window.showWarningMessage(
-                "النص المحدد فارغ."
-            );
-            return;
-        }
-
-        entries.push({
-            originalText,
-            quote: firstChar
-        });
-    }
-
-    const apiKey =
-        await context.secrets.get(
-            "translationHelper.openaiApiKey"
-        );
-
-    if (!apiKey) {
-        const result =
-            await vscode.window.showWarningMessage(
-                "ما فيه OpenAI API Key محفوظ.",
-                "إضافة المفتاح"
-            );
-
-        if (result === "إضافة المفتاح") {
-            await setOpenAIKey(context);
-        }
-
-        return;
-    }
-
-    const workspaceFolder =
-        vscode.workspace.getWorkspaceFolder(
-            document.uri
-        );
-
-    if (!workspaceFolder) {
-        vscode.window.showErrorMessage(
-            "افتح مشروعك داخل Workspace."
-        );
-        return;
-    }
-
-    const config =
-        vscode.workspace.getConfiguration(
-            "translationHelper"
-        );
-
-    const englishFile =
-        config.get(
-            "englishFile",
-            "locales/en.json"
-        );
-
-    const arabicFile =
-        config.get(
-            "arabicFile",
-            "locales/ar.json"
-        );
-
-    const indent =
-        config.get("indent", 2);
-
-    const englishPath =
-        resolveFilePath(
-            workspaceFolder.uri.fsPath,
-            englishFile
-        );
-
-    const arabicPath =
-        resolveFilePath(
-            workspaceFolder.uri.fsPath,
-            arabicFile
-        );
-
-    if (!fs.existsSync(englishPath)) {
-        vscode.window.showErrorMessage(
-            `ملف اللغة الإنجليزية غير موجود:\n${englishFile}`
-        );
-        return;
-    }
-
-    if (!fs.existsSync(arabicPath)) {
-        vscode.window.showErrorMessage(
-            `ملف اللغة العربية غير موجود:\n${arabicFile}`
-        );
-        return;
-    }
-
-    let englishData;
-    let arabicData;
-
-    try {
-        englishData = JSON.parse(
-            fs.readFileSync(
-                englishPath,
-                "utf8"
-            )
-        );
-
-        arabicData = JSON.parse(
-            fs.readFileSync(
-                arabicPath,
-                "utf8"
-            )
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            `تعذر قراءة ملفات الترجمة:\n${error.message}`
-        );
-        return;
-    }
-
-    const uniqueEntries = [];
-    const seenKeys = new Set();
-
-    for (const entry of entries) {
-        const key =
-            createKey(entry.originalText);
-
-        if (seenKeys.has(key)) {
-            continue;
-        }
-
-        seenKeys.add(key);
-
-        uniqueEntries.push({
-            ...entry,
-            key
-        });
-    }
-
-    const existingKeys = [];
-
-    for (const entry of uniqueEntries) {
-        const existsInEnglish =
-            Object.prototype.hasOwnProperty.call(
-                englishData,
-                entry.key
-            );
-
-        const existsInArabic =
-            Object.prototype.hasOwnProperty.call(
-                arabicData,
-                entry.key
-            );
-
-        if (
-            existsInEnglish ||
-            existsInArabic
-        ) {
-            existingKeys.push({
-                key: entry.key,
-                english: existsInEnglish,
-                arabic: existsInArabic
-            });
-        }
-    }
-
-    if (existingKeys.length > 0) {
-        const details =
-            existingKeys
-                .map(item => {
-                    const locations = [];
-
-                    if (item.english) {
-                        locations.push("en.json");
-                    }
-
-                    if (item.arabic) {
-                        locations.push("ar.json");
-                    }
-
-                    return `${item.key} (${locations.join(" + ")})`;
-                })
-                .join("\n");
-
-        const result =
-            await vscode.window.showWarningMessage(
-                `المفتاح موجود مسبقاً:\n\n${details}\n\nلن يتم تكراره.`,
-                "إلغاء",
-                "استخدام الموجود"
-            );
-
-        if (result !== "استخدام الموجود") {
-            return;
-        }
-    }
-
-    await vscode.window.withProgress(
-        {
-            location:
-                vscode.ProgressLocation.Notification,
-
-            title:
-                "Translation Helper: جاري الترجمة بالذكاء الاصطناعي...",
-
-            cancellable: false
-        },
-
-        async () => {
-            for (const entry of uniqueEntries) {
-                const existsInEnglish =
-                    Object.prototype.hasOwnProperty.call(
-                        englishData,
-                        entry.key
-                    );
-
-                const existsInArabic =
-                    Object.prototype.hasOwnProperty.call(
-                        arabicData,
-                        entry.key
-                    );
-
-                if (!existsInEnglish) {
-                    englishData[entry.key] =
-                        entry.originalText;
-                }
-
-                if (!existsInArabic) {
-                    const arabicTranslation =
-                        await translateToArabic(
-                            apiKey,
-                            entry.originalText
-                        );
-
-                    arabicData[entry.key] =
-                        arabicTranslation;
-                }
-            }
-        }
-    );
-
-    try {
-        fs.writeFileSync(
-            englishPath,
-            JSON.stringify(
-                englishData,
-                null,
-                indent
-            ) + "\n",
-            "utf8"
-        );
-
-        fs.writeFileSync(
-            arabicPath,
-            JSON.stringify(
-                arabicData,
-                null,
-                indent
-            ) + "\n",
-            "utf8"
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(
-            `حدث خطأ أثناء حفظ ملفات الترجمة:\n${error.message}`
-        );
-        return;
-    }
-
-    const edit =
-        new vscode.WorkspaceEdit();
-
-    for (let i = 0; i < selections.length; i++) {
-        const selection =
-            selections[i];
-
-        if (selection.isEmpty) {
-            continue;
-        }
-
-        const entry =
-            entries[i];
-
-        if (!entry) {
-            continue;
-        }
-
-        const key =
-            createKey(entry.originalText);
-
-        /*
-         * نحافظ على نفس علامة التنصيص
-         * التي حددها المستخدم.
-         *
-         * 'Basic'
-         * ↓
-         * "<%= __('admin.dashboard.Basic')%>"
-         *
-         * "Basic"
-         * ↓
-         * "<%= __("admin.dashboard.Basic")%>"
-         *
-         * ملاحظة:
-         * هنا نحتاج نستخدم quote داخل الـ EJS
-         * لذلك نضعها كما هي حول الـ key.
-         */
-
-        let replacement;
-
-        if (entry.quote === "'") {
-            replacement =
-                `<%= __('${key}')%>`;
-        } else {
-            replacement =
-                `<%= __("${key}")%>`;
-        }
-
-        /*
-         * بما أن selection نفسه يحتوي على quotes،
-         * نستبدل selection كاملًا بالناتج.
-         */
-
-        edit.replace(
-            document.uri,
-            selection,
-            replacement
-        );
-    }
-
-    const applied =
-        await vscode.workspace.applyEdit(
-            edit
-        );
-
-    if (!applied) {
-        vscode.window.showErrorMessage(
-            "تعذر تعديل ملف EJS الحالي."
-        );
-        return;
-    }
-
-    await document.save();
-
-    vscode.window.showInformationMessage(
-        `تمت ترجمة ${uniqueEntries.length} نص بالذكاء الاصطناعي.`
-    );
-}
-
 
 async function setOpenAIKey(context) {
     const apiKey = await vscode.window.showInputBox({
@@ -1976,25 +494,24 @@ async function setOpenAIKey(context) {
         placeHolder: "sk-..."
     });
 
-    if (!apiKey) {
-        return;
-    }
+    if (!apiKey) return;
 
-    await context.secrets.store(
-        "translationHelper.openaiApiKey",
-        apiKey.trim()
-    );
+    await context.secrets.store("translationHelper.openaiApiKey", apiKey.trim());
+    vscode.window.showInformationMessage("تم حفظ OpenAI API Key بشكل آمن في VS Code.");
+}
 
-    vscode.window.showInformationMessage(
-        "تم حفظ OpenAI API Key بشكل آمن في VS Code."
+function activate(context) {
+    context.subscriptions.push(
+        vscode.commands.registerCommand("translationHelper.translateSelection", () => translateSelectionWithReact(context)),
+        vscode.commands.registerCommand("translationHelper.translateEjsWithAI", () => translateEjsWithAI(context)),
+        vscode.commands.registerCommand("translationHelper.setApiKey", () => setOpenAIKey(context)),
+        vscode.commands.registerCommand("translationHelper.translateSelectionRawKey", () => translateSelectionRawKey(context))
     );
 }
 
-
-function deactivate() {}
+function deactivate() { }
 
 module.exports = {
     activate,
     deactivate
 };
-
