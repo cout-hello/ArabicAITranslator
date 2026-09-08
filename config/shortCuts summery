@@ -1,0 +1,142 @@
+// ====================================================================================
+// 📌 Extension Shortcuts & Documentation (Translation Helper Cheat Sheet)
+// ====================================================================================
+//
+// 1️⃣ [React/i18n UI] ──> Ctrl + Shift + X
+// ------------------------------------------------------------------------------------
+// • Function: Translates UI strings via AI, adds them to locales, and wraps with t().
+// • Inputs:
+//   - Unquoted string:       Welcome Back
+//   - Quoted string:         "Welcome Back"  OR  'Welcome Back'
+// • Outputs:
+//   - Replaces in code with: {t("Welcome_Back")}
+// • Extra Action: Translates to Arabic via AI, updates en.json & ar.json, and positions
+//                 the cursor on the translated value in ar.json for review.
+//
+// ------------------------------------------------------------------------------------
+// 2️⃣ [React/i18n Props & Raw Keys] ──> Ctrl + Shift + S
+// ------------------------------------------------------------------------------------
+// • Function: Extracts raw translation key inside element props, e.g., placeholder={t("...")}.
+// • Inputs:
+//   - Unquoted string:       Enter your name
+//   - Quoted string:         "Enter your name"  OR  'Enter your name'
+// • Outputs:
+//   - Replaces in code with: "Enter_your_name"
+// • Extra Action: Translates to Arabic via AI, updates en.json & ar.json, and opens ar.json.
+//
+// ------------------------------------------------------------------------------------
+// 3️⃣ [React/i18n Quick Wrap] ──> Ctrl + Shift + A
+// ------------------------------------------------------------------------------------
+// • Function: Instantly wraps variables/functions with t() without translation or JSON edits.
+// • Inputs:
+//   - Bracketed variable:    {item.title}  ──>  Outputs: {t(item.title)}
+//   - Raw variable/function: f             ──>  Outputs: t(f)
+// • Extra Action: Does NOT call AI and does NOT touch locale files (pure in-place wrapping).
+//
+// ------------------------------------------------------------------------------------
+// 4️⃣ [React/i18n Ternary & Conditionals] ──> Ctrl + Shift + Z
+// ------------------------------------------------------------------------------------
+// • Function: Purely wraps conditional strings with t() preserving existing quotes.
+// • Inputs:
+//   - Single-quoted string:  'Active'   ──>  Outputs: t('Active')
+//   - Double-quoted string:  "Active"   ──>  Outputs: t("Active")
+//   - Unquoted string:       Active     ──>  Outputs: t("Active") (Default: double quotes)
+// • Extra Action: Does NOT call AI and does NOT touch locale files.
+//
+// ------------------------------------------------------------------------------------
+// 5️⃣ [EJS Smart Tags] ──> Ctrl + Shift + W
+// ------------------------------------------------------------------------------------
+// • Function: AI translation for EJS templates while preserving the existing quote style.
+// • Inputs:
+//   - Single-quoted string:  'Save Changes'  ──>  Outputs: <%= __('Save_Changes')%>
+//   - Double-quoted string:  "Save Changes"  ──>  Outputs: <%= __("Save_Changes")%>
+//   - Unquoted string:       Save Changes    ──>  Outputs: <%= __("Save_Changes")%> (Default: double quotes)
+// • Extra Action: Translates to Arabic via AI and updates en.json & ar.json.
+//
+// ------------------------------------------------------------------------------------
+// 6️⃣ [EJS JS Code / Functions] ──> Ctrl + Shift + Q
+// ------------------------------------------------------------------------------------
+// • Function: AI translation for JS parameters inside EJS preserving quote style.
+// • Inputs:
+//   - Single-quoted arg:     'Leave Requests'  ──>  Outputs: __('Leave_Requests')
+//   - Double-quoted arg:     "Leave Requests"  ──>  Outputs: __("Leave_Requests")
+// • Extra Action: Translates to Arabic via AI and updates en.json & ar.json.
+// ====================================================================================
+
+/**
+حالات متقدمة (Edge Cases) قد تواجهينها لاحقاً:
+
+النصوص المدمجة بمتغيرات (Interpolation):
+
+الحالة: نصوص مثل Welcome, {userName} أو You have {count} items.
+
+التعامل معها: تحتاج تمرير كائن للمتغيرات مثل {t("Welcome", { userName })} أو فصل الكلمات وترجمة Welcome فقط وترك {userName} بجانبها.
+
+النصوص التي تحتوي وسوم JSX داخلية (Rich Text):
+
+الحالة: نصوص بداخلها تنسيق مثل Click <b>here</b> to continue.
+
+التعامل معها: دالة t() تُرجع نصوصاً خام؛ لمثل هذه الحالات توفر المكتبات مكوّن <Trans> بدلاً من دالة t().
+
+النصوص داخل Template Literals (علامات  ):
+
+الحالة: استدعاءات مثل `${count} items`.
+
+التعامل معها: إما استبدالها بصيغة Interpolation الخاصة بـ i18n أو ترجمة النص الثابت ودمجه.
+*/
+
+
+
+// ====================================================================================
+// 📌 دليل وتوثيق اختصارات الإضافة (Translation Helper Cheat Sheet)
+// ====================================================================================
+//
+// 1️⃣ [React/i18n UI] ──> Ctrl + Shift + X
+// ------------------------------------------------------------------------------------
+// • الوظيفة: ترجمة نصوص الواجهة بالذكاء الاصطناعي وإضافتها لملفات اللغات، وتغليفها بـ t().
+// • المدخلات (Input):
+//   - نص عادي بدون تنصيص:    Welcome Back
+//   - نص محاط بعلامات تنصيص:  "Welcome Back"  أو  'Welcome Back'
+// • المخرجات (Output):
+//   - يستبدل النص في الكود بـ:  {t("Welcome_Back")}
+// • الإجراء الإضافي: يترجم للعربية عبر AI، ويحدث en.json و ar.json، ويضع المؤشر على القيمة في ar.json للمراجعة.
+//
+// ------------------------------------------------------------------------------------
+// 2️⃣ [React/i18n Props & Raw Keys] ──> Ctrl + Shift + S
+// ------------------------------------------------------------------------------------
+// • الوظيفة: استخراج مفتاح الترجمة الخام داخل خصائص العناصر (Props) مثل placeholder={t("...")}.
+// • المدخلات (Input):
+//   - نص عادي بدون تنصيص:    Enter your name
+//   - نص محاط بعلامات تنصيص:  "Enter your name"  أو  'Enter your name'
+// • المخرجات (Output):
+//   - يستبدل النص بالمفتاح فقط: "Enter_your_name"
+// • الإجراء الإضافي: يترجم للعربية عبر AI، ويحدث en.json و ar.json، ويفتح ar.json للمراجعة.
+//
+// ------------------------------------------------------------------------------------
+// 3️⃣ [React/i18n Quick Wrap] ──> Ctrl + Shift + A
+// ------------------------------------------------------------------------------------
+// • الوظيفة: تغليف فوري للمتغيرات والدوال بـ t() بدون ترجمة وبدون المساس بملفات JSON.
+// • المدخلات (Input):
+//   - متغير أو كائن محاط بأقواس: {item.title}  ──>  ينتج: {t(item.title)}
+//   - متغير أو دالة بدون أقواس:   f           ──>  ينتج: t(f)
+// • الإجراء الإضافي: لا يستدعي الذكاء الاصطناعي ولا يفتح ملفات الترجمة (تعديل موضعي فقط).
+//
+// ------------------------------------------------------------------------------------
+// 4️⃣ [EJS Smart Tags] ──> Ctrl + Shift + W
+// ------------------------------------------------------------------------------------
+// • الوظيفة: ترجمة بالـ AI لقوالب EJS مع الحفاظ التلقائي على نوع علامة التنصيص المحددة.
+// • المدخلات (Input):
+//   - نص بتنصيص فردي:  'Save Changes'  ──>  ينتج: <%= __('Save_Changes')%>
+//   - نص بتنصيص مزدوج: "Save Changes"  ──>  ينتج: <%= __("Save_Changes")%>
+//   - نص بدون تنصيص:   Save Changes    ──>  ينتج: <%= __("Save_Changes")%> (الافتراضي دبل)
+// • الإجراء الإضافي: يترجم للعربية ويحدث ملفات en.json و ar.json.
+//
+// ------------------------------------------------------------------------------------
+// 5️⃣ [EJS JS Code / Functions] ──> Ctrl + Shift + Q
+// ------------------------------------------------------------------------------------
+// • الوظيفة: ترجمة بالـ AI لمتغيرات جافاسكريبت داخل EJS مع الحفاظ على نفس نوع التنصيص.
+// • المدخلات (Input):
+//   - مدخل دالة بتنصيص فردي:  'Leave Requests'  ──>  ينتج: __('Leave_Requests')
+//   - مدخل دالة بتنصيص مزدوج: "Leave Requests"  ──>  ينتج: __("Leave_Requests")
+// • الإجراء الإضافي: يترجم للعربية ويحدث ملفات en.json و ar.json.
+// ====================================================================================

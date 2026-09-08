@@ -15,32 +15,31 @@
     "commands": [
       {
         "command": "translationHelper.translateSelection",
-        "title": "Translation Helper: Translate Selection"
+        "title": "Translation Helper: React {t(\"key\")}"
       },
       {
-        "command": "translationHelper.translateEjsSelection",
-        "title": "Translation Helper: Translate EJS Selection"
-      },
-
-      {
-        "command": "translationHelper.translateWithAI",
-        "title": "Translation Helper: Translate with AI"
+        "command": "translationHelper.translateSelectionRawKey",
+        "title": "Translation Helper: Raw Key \"key\""
       },
       {
-        "command": "translationHelper.translateEjsWithAI",
-        "title": "Translation Helper: Translate EJS with AI"
+        "command": "translationHelper.wrapWithTranslationFunction",
+        "title": "Translation Helper: Wrap with t()"
       },
       {
         "command": "translationHelper.translateEjsStringWithAI",
-        "title": "Translation Helper: Translate EJS String with AI"
+        "title": "Translation Helper: EJS Smart Tag <%= __('key')%>"
+      },
+      {
+        "command": "translationHelper.translateEjsWithAI",
+        "title": "Translation Helper: EJS Code __('key')"
       },
       {
         "command": "translationHelper.setApiKey",
         "title": "Translation Helper: Set OpenAI API Key"
       },
       {
-        "command": "translationHelper.translateSelectionRawKey",
-        "title": "Translation Helper: Translate Selection (Raw Key)"
+        "command": "translationHelper.translateTernaryWithT",
+        "title": "Translation Helper: Wrap Condition with t()"
       }
     ],
     "keybindings": [
@@ -50,13 +49,13 @@
         "when": "editorTextFocus"
       },
       {
-        "command": "translationHelper.translateWithAI",
-        "key": "ctrl+shift+a",
+        "command": "translationHelper.translateSelectionRawKey",
+        "key": "ctrl+shift+s",
         "when": "editorTextFocus"
       },
       {
-        "command": "translationHelper.translateEjsWithAI",
-        "key": "ctrl+shift+q",
+        "command": "translationHelper.wrapWithTranslationFunction",
+        "key": "ctrl+shift+a",
         "when": "editorTextFocus"
       },
       {
@@ -65,39 +64,16 @@
         "when": "editorTextFocus"
       },
       {
-        "command": "translationHelper.translateSelectionRawKey",
-        "key": "ctrl+shift+s",
+        "command": "translationHelper.translateEjsWithAI",
+        "key": "ctrl+shift+q",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "translationHelper.translateTernaryWithT",
+        "key": "ctrl+shift+z",
         "when": "editorTextFocus"
       }
-
-
-      
-    ],
-    "configuration": {
-      "title": "Translation Helper",
-      "properties": {
-        "translationHelper.prefix": {
-          "type": "string",
-          "default": "",
-          "description": "Optional prefix for translation keys. Example: QWER -> QWER.hello"
-        },
-        "translationHelper.englishFile": {
-          "type": "string",
-          "default": "locales/en.json",
-          "description": "Path to the English translation JSON file relative to the workspace root."
-        },
-        "translationHelper.arabicFile": {
-          "type": "string",
-          "default": "locales/ar.json",
-          "description": "Path to the Arabic translation JSON file relative to the workspace root."
-        },
-        "translationHelper.indent": {
-          "type": "number",
-          "default": 2,
-          "description": "Number of spaces used to format JSON translation files."
-        }
-      }
-    }
+    ]
   },
   "dependencies": {
     "dotenv": "^17.4.2",

@@ -9,6 +9,7 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
         "C:\\Users\\mikik\\OneDrive\\Desktop\\Ascpius-Team-website-"
+        //"C:\\Users\\mikik\\OneDrive\\Desktop\\ascpius-admin-project\\ascpius-admin"
       ],
       "outFiles": [
         "${workspaceFolder}/**/*.js"
